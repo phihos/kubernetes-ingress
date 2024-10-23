@@ -19,6 +19,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/haproxytech/kubernetes-ingress/pkg/k8s"
+
 	"github.com/fasthttp/router"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/valyala/fasthttp"
@@ -52,6 +54,7 @@ type Builder struct {
 	haproxyRules             rules.Rules
 	restClientSet            client.Client
 	updateStatusManager      status.UpdateStatusManager
+	restartLock              *k8s.Lease
 	updatePublishServiceFunc func(ingresses []*ingress.Ingress, publishServiceAddresses []string)
 	eventChan                chan k8ssync.SyncDataEvent
 	clientSet                *kubernetes.Clientset
@@ -147,6 +150,11 @@ func (builder *Builder) WithUpdateStatusManager(updateStatusManager status.Updat
 	return builder
 }
 
+func (builder *Builder) WithRestartLock(restartLock *k8s.Lease) *Builder {
+	builder.restartLock = restartLock
+	return builder
+}
+
 func (builder *Builder) Build() *HAProxyController {
 	if builder.haproxyCfgFile == nil {
 		logger.Panic(errors.New("no HAProxy Config file provided"))
@@ -178,6 +186,11 @@ func (builder *Builder) Build() *HAProxyController {
 		updateStatusManager = status.New(builder.clientSet, builder.osArgs.IngressClass, builder.osArgs.EmptyIngressClass)
 	}
 	hostname, _ := os.Hostname()
+	podNamespace := os.Getenv("POD_NAMESPACE")
+	restartLock := builder.restartLock
+	if restartLock == nil {
+		restartLock = k8s.NewLease(prefix, podNamespace, 60, hostname, builder.clientSet)
+	}
 	podIP := utils.GetIP()
 	if podIP == "" {
 		podIP = "127.0.0.1"
@@ -185,7 +198,7 @@ func (builder *Builder) Build() *HAProxyController {
 	return &HAProxyController{
 		osArgs:                   builder.osArgs,
 		haproxy:                  haproxy,
-		podNamespace:             os.Getenv("POD_NAMESPACE"),
+		podNamespace:             podNamespace,
 		podPrefix:                prefix,
 		store:                    builder.store,
 		eventChan:                builder.eventChan,
@@ -194,6 +207,7 @@ func (builder *Builder) Build() *HAProxyController {
 		updatePublishServiceFunc: builder.updatePublishServiceFunc,
 		gatewayManager:           gatewayManager,
 		updateStatusManager:      updateStatusManager,
+		restartLock:              *restartLock,
 		prometheusMetricsManager: metrics.New(),
 		PodIP:                    podIP,
 		Hostname:                 hostname,

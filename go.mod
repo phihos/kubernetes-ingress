@@ -13,6 +13,7 @@ require (
 	github.com/haproxytech/client-native/v5 v5.1.11
 	github.com/haproxytech/config-parser/v5 v5.1.5
 	github.com/jessevdk/go-flags v1.4.0
+	github.com/jrhouston/k8slock v0.2.0
 	github.com/pires/go-proxyproto v0.7.0
 	github.com/prometheus/client_golang v1.20.4
 	github.com/stretchr/testify v1.9.0

@@ -19,6 +19,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/haproxytech/kubernetes-ingress/pkg/k8s"
+
 	"github.com/go-test/deep"
 
 	"github.com/haproxytech/client-native/v5/models"
@@ -46,6 +48,7 @@ type HAProxyController struct {
 	gatewayManager           gateway.GatewayManager
 	annotations              annotations.Annotations
 	updateStatusManager      status.UpdateStatusManager
+	restartLock              k8s.Lease
 	eventChan                chan k8ssync.SyncDataEvent
 	updatePublishServiceFunc func(ingresses []*ingress.Ingress, publishServiceAddresses []string)
 	chShutdown               chan struct{}
@@ -198,10 +201,16 @@ func (c *HAProxyController) updateHAProxy() {
 
 	switch {
 	case instance.NeedRestart():
+		if err := c.restartLock.Lock(); err != nil {
+			logger.Error(err)
+		}
 		if err = c.haproxy.Service("restart"); err != nil {
 			logger.Error(err)
 		} else {
 			logger.Info("HAProxy restarted")
+		}
+		if err = c.restartLock.Unlock(); err != nil {
+			logger.Error(err)
 		}
 		c.prometheusMetricsManager.UpdateRestartMetrics(err)
 	case instance.NeedReload():
